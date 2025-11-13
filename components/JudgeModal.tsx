@@ -4,7 +4,7 @@ import { Judge, Track, TRACKS } from '../types';
 interface JudgeModalProps {
   judge: Judge | null;
   onClose: () => void;
-  onSave: (judge: Omit<Judge, 'id'> | Judge) => Promise<void>;
+  onSave: (judge: Omit<Judge, 'id'> | Judge) => void;
 }
 
 const JudgeModal: React.FC<JudgeModalProps> = ({ judge, onClose, onSave }) => {
@@ -29,7 +29,7 @@ const JudgeModal: React.FC<JudgeModalProps> = ({ judge, onClose, onSave }) => {
     );
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
         alert('Judge name cannot be empty.');
@@ -41,9 +41,9 @@ const JudgeModal: React.FC<JudgeModalProps> = ({ judge, onClose, onSave }) => {
     };
 
     if (judge) {
-        await onSave({ ...judgeData, id: judge.id });
+        onSave({ ...judgeData, id: judge.id });
     } else {
-        await onSave(judgeData);
+        onSave(judgeData);
     }
   };
 

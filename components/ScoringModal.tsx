@@ -7,7 +7,7 @@ interface ScoringModalProps {
   criteria: Criterion[];
   existingScore?: Score;
   onClose: () => void;
-  onSave: (newScore: Score) => Promise<void>;
+  onSave: (newScore: Score) => void;
 }
 
 const LinkIcon = () => (
@@ -36,7 +36,7 @@ const ScoringModal: React.FC<ScoringModalProps> = ({ project, judgeId, criteria,
     setScores(prev => ({ ...prev, [criterionId]: newScore }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newScore: Score = {
       id: existingScore?.id || `s_${project.id}_${judgeId}_${Date.now()}`,
@@ -46,7 +46,7 @@ const ScoringModal: React.FC<ScoringModalProps> = ({ project, judgeId, criteria,
       juryTrl: juryTrl,
       notes: notes,
     };
-    await onSave(newScore);
+    onSave(newScore);
     onClose();
   };
 

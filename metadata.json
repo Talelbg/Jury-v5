@@ -1,5 +1,5 @@
 {
-  "name": "HAH Evaluation Platform v5",
+  "name": "HAH Evaluation Platform",
   "description": "A comprehensive web-based application to streamline and enhance the hackathon judging process, ensuring fair, transparent, and efficient evaluations through automation, score normalization, and customizable criteria.",
   "requestFramePermissions": []
 }

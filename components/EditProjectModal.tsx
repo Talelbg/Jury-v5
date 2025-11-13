@@ -5,7 +5,7 @@ import { DeleteIcon } from './icons';
 interface EditProjectModalProps {
   project: Project;
   onClose: () => void;
-  onSave: (updatedProject: Project) => Promise<void>;
+  onSave: (updatedProject: Project) => void;
 }
 
 const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose, onSave }) => {
@@ -37,9 +37,9 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({ project, onClose, o
     setFormData(prev => ({ ...prev, links: newLinks }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    await onSave(formData);
+    onSave(formData);
     onClose();
   };
 

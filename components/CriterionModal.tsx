@@ -4,7 +4,7 @@ import { Criterion, TRL } from '../types';
 interface CriterionModalProps {
   criterion: Criterion | null;
   onClose: () => void;
-  onSave: (criterion: Omit<Criterion, 'id'> | Criterion) => Promise<void>;
+  onSave: (criterion: Omit<Criterion, 'id'> | Criterion) => void;
 }
 
 const CriterionModal: React.FC<CriterionModalProps> = ({ criterion, onClose, onSave }) => {
@@ -24,7 +24,7 @@ const CriterionModal: React.FC<CriterionModalProps> = ({ criterion, onClose, onS
     }
   }, [criterion]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
         alert('Criterion name cannot be empty.');
@@ -45,9 +45,9 @@ const CriterionModal: React.FC<CriterionModalProps> = ({ criterion, onClose, onS
     };
 
     if (criterion) {
-        await onSave({ ...criterionData, id: criterion.id });
+        onSave({ ...criterionData, id: criterion.id });
     } else {
-        await onSave(criterionData);
+        onSave(criterionData);
     }
   };
 
