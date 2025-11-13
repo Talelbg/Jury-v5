@@ -8,7 +8,7 @@ interface DBState {
   scores: Score[];
 }
 
-const API_BASE_URL = `http://${window.location.hostname}:3001/api`;
+const API_BASE_URL = '/api';
 
 const handleResponse = async (response: Response) => {
   if (!response.ok) {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { UserRole, Project, Judge, Criterion, Score, Track } from './types';
 import LoginScreen from './components/LoginScreen';
 import AdminDashboard from './components/AdminDashboard';
@@ -17,105 +17,101 @@ function App() {
   const [criteria, setCriteria] = useState<Criterion[]>([]);
   const [scores, setScores] = useState<Score[]>([]);
 
-  // Initial Data Load from Backend
-  useEffect(() => {
-    const fetchData = async () => {
-        try {
-            setIsLoading(true);
-            const data = await dbService.getAllData();
-            setProjects(data.projects);
-            setJudges(data.judges);
-            setCriteria(data.criteria);
-            setScores(data.scores);
-            setError(null);
-        } catch (err) {
+  const refreshData = useCallback(async (isInitialLoad = false) => {
+    try {
+        const data = await dbService.getAllData();
+        setProjects(data.projects);
+        setJudges(data.judges);
+        setCriteria(data.criteria);
+        setScores(data.scores);
+        if (isInitialLoad) setError(null);
+    } catch (err) {
+        console.error("Failed to refresh data:", err);
+        if (isInitialLoad) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to connect to backend.';
-            setError(`Could not load data. Please ensure the backend server is running. (${errorMessage})`);
-            console.error(err);
-        } finally {
-            setIsLoading(false);
+            setError(`Could not load data. Please ensure the backend is deployed correctly. (${errorMessage})`);
         }
-    };
-    fetchData();
+    }
   }, []);
 
-  // WebSocket for Real-time Updates
+
+  // Initial Data Load
   useEffect(() => {
-    // Do not establish WebSocket connection if there was an initial error
+    const fetchData = async () => {
+        setIsLoading(true);
+        await refreshData(true);
+        setIsLoading(false);
+    };
+    fetchData();
+  }, [refreshData]);
+
+  // Polling for near-real-time updates
+  useEffect(() => {
     if (error) return;
 
-    const ws = new WebSocket(`ws://${window.location.hostname}:3001`);
+    const intervalId = setInterval(() => {
+        refreshData(false);
+    }, 5000); // Poll every 5 seconds
 
-    ws.onopen = () => console.log('WebSocket connection established');
-    ws.onclose = () => console.log('WebSocket connection closed');
-    ws.onerror = (err) => console.error('WebSocket error:', err);
-
-    ws.onmessage = (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            if (message.type === 'DATA_UPDATE') {
-                const { projects, judges, criteria, scores } = message.payload;
-                setProjects(projects || []);
-                setJudges(judges || []);
-                setCriteria(criteria || []);
-                setScores(scores || []);
-            }
-        } catch (e) {
-            console.error('Error parsing WebSocket message:', e);
-        }
-    };
-
-    // Cleanup function to close the connection when the component unmounts
-    return () => {
-        ws.close();
-    };
-  }, [error]); // Re-run if error state changes (though we only connect if no error)
+    return () => clearInterval(intervalId);
+  }, [error, refreshData]);
 
 
-  // --- Admin Handlers (now async and call dbService) ---
+  // --- Admin Handlers (now call refreshData for immediate UI update) ---
   const addProjects = async (newProjectsData: Omit<Project, 'id'>[]) => {
       await dbService.createProjects(newProjectsData);
+      await refreshData();
   };
   const editProject = async (updatedProject: Project) => {
       await dbService.updateProject(updatedProject);
+      await refreshData();
   };
   const deleteProject = async (projectId: string) => {
     if (!window.confirm('Are you sure you want to delete this project? This will also delete all associated scores and cannot be undone.')) {
         return;
     }
     await dbService.deleteProject(projectId);
+    await refreshData();
   };
 
   const addJudge = async (newJudgeData: Omit<Judge, 'id'>): Promise<Judge> => {
-    return await dbService.createJudge(newJudgeData);
+    const newJudge = await dbService.createJudge(newJudgeData);
+    await refreshData();
+    return newJudge;
   };
 
   const editJudge = async (updatedJudge: Judge) => {
       await dbService.updateJudge(updatedJudge);
+      await refreshData();
   };
   const deleteJudge = async (judgeId: string) => {
     if (!window.confirm('Are you sure you want to delete this judge? This will also delete all their scores and cannot be undone.')) {
         return;
     }
     await dbService.deleteJudge(judgeId);
+    await refreshData();
   };
 
   const addCriterion = async (newCriterionData: Omit<Criterion, 'id'>) => {
       await dbService.createCriterion(newCriterionData);
+      await refreshData();
   };
   const editCriterion = async (updatedCriterion: Criterion) => {
       await dbService.updateCriterion(updatedCriterion);
+      await refreshData();
   };
   const deleteCriterion = async (criterionId: string) => {
      if (!window.confirm('Are you sure you want to delete this criterion? This could affect existing scores.')) {
         return;
      }
     await dbService.deleteCriterion(criterionId);
+    await refreshData();
   };
 
   // --- Judge Handler ---
   const addOrUpdateScore = async (newScore: Score) => {
     await dbService.createOrUpdateScore(newScore);
+    await refreshData();
   };
   
   const deleteScore = async (scoreId: string) => {
@@ -123,6 +119,7 @@ function App() {
         return;
     }
     await dbService.deleteScore(scoreId);
+    await refreshData();
   };
 
   const handleAdminLogin = () => setUser({ role: UserRole.ADMIN });
@@ -185,7 +182,7 @@ function App() {
       case UserRole.JUDGE:
         if (!judgeData || !judgeData.currentJudge) {
             // This can happen briefly if a judge is deleted while they are logged in.
-            // The websocket will remove them, and this logic will log them out gracefully.
+            // The polling will remove them, and this logic will log them out gracefully.
             handleLogout();
             return null; // Or a message
         }
