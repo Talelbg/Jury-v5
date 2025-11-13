@@ -1,22 +1,13 @@
 // backend/server.js
-
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
 const http = require('http');
 const WebSocket = require('ws');
+const { MongoClient, ObjectId } = require('mongodb');
 
 const app = express();
-const PORT = 3001;
-const DB_PATH = path.join(__dirname, 'db.json');
-
-// --- Instructions ---
-// To run this backend server:
-// 1. Navigate to the `backend` directory in your terminal.
-// 2. Run `npm install` to install the required dependencies (express, cors, ws).
-// 3. Run `node server.js` to start the server.
-// The server will run on http://localhost:3001 and the frontend will connect to it.
+const PORT = process.env.PORT || 3001;
 
 // --- Middleware ---
 app.use(cors());
@@ -25,6 +16,27 @@ app.use(express.json());
 // --- Create HTTP server and WebSocket server ---
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+
+// --- MongoDB Connection ---
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+    throw new Error('Fatal: MONGODB_URI environment variable is not defined.');
+}
+const client = new MongoClient(MONGODB_URI);
+let db;
+
+async function connectDB() {
+    if (db) return db;
+    try {
+        await client.connect();
+        db = client.db(); // Use the default DB from the connection string
+        console.log("Successfully connected to MongoDB.");
+        return db;
+    } catch (e) {
+        console.error("Failed to connect to MongoDB", e);
+        process.exit(1);
+    }
+}
 
 // --- WebSocket Logic ---
 const broadcast = (data) => {
@@ -42,198 +54,223 @@ wss.on('connection', (ws) => {
   });
 });
 
-// --- DB Utility Functions ---
+// --- DB Utility & Broadcast Helper ---
+const transformDoc = (doc) => {
+    if (!doc) return null;
+    const { _id, ...rest } = doc;
+    // Scores have a client-generated string 'id', other collections use '_id'
+    return { id: _id ? _id.toHexString() : rest.id, ...rest };
+};
 
-const readDB = () => {
-  try {
-    if (!fs.existsSync(DB_PATH)) {
-        console.error("db.json not found. Please ensure it exists in the backend directory.");
-        return { projects: [], judges: [], criteria: [], scores: [] };
+const broadcastUpdate = async () => {
+    try {
+        const database = await connectDB();
+        const projects = await database.collection('projects').find({}).toArray();
+        const judges = await database.collection('judges').find({}).toArray();
+        const criteria = await database.collection('criteria').find({}).toArray();
+        const scores = await database.collection('scores').find({}).toArray();
+        
+        const payload = {
+            projects: projects.map(transformDoc),
+            judges: judges.map(transformDoc),
+            criteria: criteria.map(transformDoc),
+            scores: scores.map(doc => ({ ...doc, id: doc.id })), // Scores use a string ID field
+        };
+        
+        broadcast({ type: 'DATA_UPDATE', payload });
+    } catch (e) {
+        console.error("Error broadcasting update:", e);
     }
-    const data = fs.readFileSync(DB_PATH, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error("Error reading database file:", error);
-    return { projects: [], judges: [], criteria: [], scores: [] };
-  }
 };
 
-const writeDB = (data) => {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (error) {
-    console.error("Error writing to database file:", error);
-  }
-};
-
-// --- Broadcast Helper ---
-const broadcastUpdate = () => {
-    broadcast({ type: 'DATA_UPDATE', payload: readDB() });
+const getObjectId = (id) => {
+    try {
+        return new ObjectId(id);
+    } catch (e) {
+        return null;
+    }
 };
 
 // --- API Routes ---
 
 // GET all data
-app.get('/api/data', (req, res) => {
-  const db = readDB();
-  res.json(db);
-});
-
-// PROJECTS
-app.post('/api/projects', (req, res) => {
-  const db = readDB();
-  const newProjectsData = req.body; // Expects an array
-  const createdProjects = newProjectsData.map((p, i) => ({ ...p, id: `p_${Date.now()}_${i}` }));
-  db.projects.push(...createdProjects);
-  writeDB(db);
-  broadcastUpdate();
-  res.status(201).json(createdProjects);
-});
-
-app.put('/api/projects/:id', (req, res) => {
-  const db = readDB();
-  const { id } = req.params;
-  const updatedProject = req.body;
-  const index = db.projects.findIndex(p => p.id === id);
-  if (index !== -1) {
-    db.projects[index] = updatedProject;
-    writeDB(db);
-    broadcastUpdate();
-    res.json(updatedProject);
-  } else {
-    res.status(404).json({ message: 'Project not found' });
-  }
-});
-
-app.delete('/api/projects/:id', (req, res) => {
-  const db = readDB();
-  const { id } = req.params;
-  const projectExists = db.projects.some(p => p.id === id);
-  if (projectExists) {
-    db.projects = db.projects.filter(p => p.id !== id);
-    // Cascade delete scores
-    db.scores = db.scores.filter(s => s.projectId !== id);
-    writeDB(db);
-    broadcastUpdate();
-    res.status(200).json({ success: true });
-  } else {
-    res.status(404).json({ message: 'Project not found' });
-  }
-});
-
-// JUDGES
-app.post('/api/judges', (req, res) => {
-    const db = readDB();
-    const newJudgeData = req.body;
-    const newJudge = { id: `j_${Date.now()}`, ...newJudgeData };
-    db.judges.push(newJudge);
-    writeDB(db);
-    broadcastUpdate();
-    res.status(201).json(newJudge);
-});
-
-app.put('/api/judges/:id', (req, res) => {
-    const db = readDB();
-    const { id } = req.params;
-    const updatedJudge = req.body;
-    const index = db.judges.findIndex(j => j.id === id);
-    if (index !== -1) {
-        db.judges[index] = updatedJudge;
-        writeDB(db);
-        broadcastUpdate();
-        res.json(updatedJudge);
-    } else {
-        res.status(404).json({ message: 'Judge not found' });
+app.get('/api/data', async (req, res) => {
+    try {
+        const database = await connectDB();
+        const projects = await database.collection('projects').find({}).toArray();
+        const judges = await database.collection('judges').find({}).toArray();
+        const criteria = await database.collection('criteria').find({}).toArray();
+        const scores = await database.collection('scores').find({}).toArray();
+        
+        res.json({
+            projects: projects.map(transformDoc),
+            judges: judges.map(transformDoc),
+            criteria: criteria.map(transformDoc),
+            scores: scores,
+        });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
 });
 
-app.delete('/api/judges/:id', (req, res) => {
-    const db = readDB();
-    const { id } = req.params;
-    const judgeExists = db.judges.some(j => j.id === id);
-    if (judgeExists) {
-        db.judges = db.judges.filter(j => j.id !== id);
-        // Cascade delete scores
-        db.scores = db.scores.filter(s => s.judgeId !== id);
-        writeDB(db);
-        broadcastUpdate();
+// PROJECTS
+app.post('/api/projects', async (req, res) => {
+    try {
+        const database = await connectDB();
+        const result = await database.collection('projects').insertMany(req.body);
+        const newIds = Object.values(result.insertedIds);
+        const createdProjects = await database.collection('projects').find({ _id: { $in: newIds } }).toArray();
+        await broadcastUpdate();
+        res.status(201).json(createdProjects.map(transformDoc));
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.put('/api/projects/:id', async (req, res) => {
+    const objectId = getObjectId(req.params.id);
+    if (!objectId) return res.status(400).json({ message: 'Invalid ID format' });
+    const { id, ...data } = req.body;
+    try {
+        const database = await connectDB();
+        const result = await database.collection('projects').updateOne({ _id: objectId }, { $set: data });
+        if (result.matchedCount === 0) return res.status(404).json({ message: 'Project not found' });
+        await broadcastUpdate();
+        res.json(req.body);
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.delete('/api/projects/:id', async (req, res) => {
+    const objectId = getObjectId(req.params.id);
+    if (!objectId) return res.status(400).json({ message: 'Invalid ID format' });
+    try {
+        const database = await connectDB();
+        const result = await database.collection('projects').deleteOne({ _id: objectId });
+        if (result.deletedCount === 0) return res.status(404).json({ message: 'Project not found' });
+        await database.collection('scores').deleteMany({ projectId: req.params.id });
+        await broadcastUpdate();
         res.status(200).json({ success: true });
-    } else {
-        res.status(404).json({ message: 'Judge not found' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// JUDGES
+app.post('/api/judges', async (req, res) => {
+    try {
+        const database = await connectDB();
+        const result = await database.collection('judges').insertOne(req.body);
+        const newJudge = await database.collection('judges').findOne({ _id: result.insertedId });
+        await broadcastUpdate();
+        res.status(201).json(transformDoc(newJudge));
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.put('/api/judges/:id', async (req, res) => {
+    const objectId = getObjectId(req.params.id);
+    if (!objectId) return res.status(400).json({ message: 'Invalid ID format' });
+    const { id, ...data } = req.body;
+    try {
+        const database = await connectDB();
+        const result = await database.collection('judges').updateOne({ _id: objectId }, { $set: data });
+        if (result.matchedCount === 0) return res.status(404).json({ message: 'Judge not found' });
+        await broadcastUpdate();
+        res.json(req.body);
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.delete('/api/judges/:id', async (req, res) => {
+    const objectId = getObjectId(req.params.id);
+    if (!objectId) return res.status(400).json({ message: 'Invalid ID format' });
+    try {
+        const database = await connectDB();
+        const result = await database.collection('judges').deleteOne({ _id: objectId });
+        if (result.deletedCount === 0) return res.status(404).json({ message: 'Judge not found' });
+        await database.collection('scores').deleteMany({ judgeId: req.params.id });
+        await broadcastUpdate();
+        res.status(200).json({ success: true });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
 });
 
 // CRITERIA
-app.post('/api/criteria', (req, res) => {
-    const db = readDB();
-    const newCriterionData = req.body;
-    const newCriterion = { id: `c_${Date.now()}`, ...newCriterionData };
-    db.criteria.push(newCriterion);
-    writeDB(db);
-    broadcastUpdate();
-    res.status(201).json(newCriterion);
-});
-
-app.put('/api/criteria/:id', (req, res) => {
-    const db = readDB();
-    const { id } = req.params;
-    const updatedCriterion = req.body;
-    const index = db.criteria.findIndex(c => c.id === id);
-    if (index !== -1) {
-        db.criteria[index] = updatedCriterion;
-        writeDB(db);
-        broadcastUpdate();
-        res.json(updatedCriterion);
-    } else {
-        res.status(404).json({ message: 'Criterion not found' });
+app.post('/api/criteria', async (req, res) => {
+    try {
+        const database = await connectDB();
+        const result = await database.collection('criteria').insertOne(req.body);
+        const newCriterion = await database.collection('criteria').findOne({ _id: result.insertedId });
+        await broadcastUpdate();
+        res.status(201).json(transformDoc(newCriterion));
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
 });
 
-app.delete('/api/criteria/:id', (req, res) => {
-    const db = readDB();
-    const { id } = req.params;
-    const criterionExists = db.criteria.some(c => c.id === id);
-    if (criterionExists) {
-        db.criteria = db.criteria.filter(c => c.id !== id);
-        writeDB(db);
-        broadcastUpdate();
+app.put('/api/criteria/:id', async (req, res) => {
+    const objectId = getObjectId(req.params.id);
+    if (!objectId) return res.status(400).json({ message: 'Invalid ID format' });
+    const { id, ...data } = req.body;
+    try {
+        const database = await connectDB();
+        const result = await database.collection('criteria').updateOne({ _id: objectId }, { $set: data });
+        if (result.matchedCount === 0) return res.status(404).json({ message: 'Criterion not found' });
+        await broadcastUpdate();
+        res.json(req.body);
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.delete('/api/criteria/:id', async (req, res) => {
+    const objectId = getObjectId(req.params.id);
+    if (!objectId) return res.status(400).json({ message: 'Invalid ID format' });
+    try {
+        const database = await connectDB();
+        const result = await database.collection('criteria').deleteOne({ _id: objectId });
+        if (result.deletedCount === 0) return res.status(404).json({ message: 'Criterion not found' });
+        await broadcastUpdate();
         res.status(200).json({ success: true });
-    } else {
-        res.status(404).json({ message: 'Criterion not found' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
 });
 
 // SCORES
-app.post('/api/scores', (req, res) => { // Handles upsert
-    const db = readDB();
+app.post('/api/scores', async (req, res) => { // Handles upsert
     const score = req.body;
-    const index = db.scores.findIndex(s => s.id === score.id);
-    if (index !== -1) {
-        db.scores[index] = score; // Update
-    } else {
-        db.scores.push(score); // Create
+    const { id, ...scoreData } = score;
+    try {
+        const database = await connectDB();
+        await database.collection('scores').updateOne({ id: id }, { $set: scoreData }, { upsert: true });
+        await broadcastUpdate();
+        res.status(200).json(score);
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
-    writeDB(db);
-    broadcastUpdate();
-    res.status(200).json(score);
 });
 
-app.delete('/api/scores/:id', (req, res) => {
-    const db = readDB();
-    const { id } = req.params;
-    const scoreExists = db.scores.some(s => s.id === id);
-    if (scoreExists) {
-        db.scores = db.scores.filter(s => s.id !== id);
-        writeDB(db);
-        broadcastUpdate();
+app.delete('/api/scores/:id', async (req, res) => {
+    try {
+        const database = await connectDB();
+        const result = await database.collection('scores').deleteOne({ id: req.params.id });
+        if (result.deletedCount === 0) return res.status(404).json({ message: 'Score not found' });
+        await broadcastUpdate();
         res.status(200).json({ success: true });
-    } else {
-        res.status(404).json({ message: 'Score not found' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
 });
 
 // --- Start Server ---
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
+  await connectDB();
   console.log(`Backend server with WebSocket is running on http://localhost:${PORT}`);
   console.log('API endpoints are available under /api');
 });

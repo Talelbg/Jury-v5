@@ -44,7 +44,7 @@ function App() {
     // Do not establish WebSocket connection if there was an initial error
     if (error) return;
 
-    const ws = new WebSocket('ws://localhost:3001');
+    const ws = new WebSocket(`ws://${window.location.hostname}:3001`);
 
     ws.onopen = () => console.log('WebSocket connection established');
     ws.onclose = () => console.log('WebSocket connection closed');
