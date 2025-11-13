@@ -13,24 +13,44 @@ app.use(express.json());
 
 // --- MongoDB Connection ---
 const MONGODB_URI = process.env.MONGODB_URI;
-if (!MONGODB_URI) {
-    throw new Error('Fatal: MONGODB_URI environment variable is not defined.');
-}
-const client = new MongoClient(MONGODB_URI);
-let db;
+
+let client = null; // Lazily initialized
+let cachedDb = null;
 
 async function connectDB() {
-    if (db) return db;
+    if (cachedDb) {
+        return cachedDb;
+    }
+    
+    // Check for the URI here, inside the function, to ensure errors are caught by API handlers
+    if (!MONGODB_URI) {
+        throw new Error('MONGODB_URI environment variable is not configured on the server.');
+    }
+    
     try {
+        if (!client) {
+            client = new MongoClient(MONGODB_URI);
+        }
         await client.connect();
-        db = client.db(); // Use the default DB from the connection string
+        const db = client.db(); // Use the default DB from the connection string
+        cachedDb = db; // Cache the connection for future invocations
         console.log("Successfully connected to MongoDB.");
         return db;
     } catch (e) {
-        console.error("Failed to connect to MongoDB", e);
-        process.exit(1);
+        console.error("Failed to connect to MongoDB:", e.message);
+        client = null; // Reset client on connection error
+        cachedDb = null;
+        
+        let errorMessage = "Could not establish database connection.";
+        if (e.message.includes('bad auth')) {
+            errorMessage = "Database authentication failed. Please check credentials in MONGODB_URI.";
+        } else if (e.message.includes('timeout')) {
+            errorMessage = "Database connection timed out. This may be a firewall or IP whitelist issue. Ensure Vercel's IPs are whitelisted in your database settings (try allowing access from 0.0.0.0/0).";
+        }
+        throw new Error(errorMessage);
     }
 }
+
 
 // --- DB Utility ---
 const transformDoc = (doc) => {
@@ -215,12 +235,19 @@ app.delete('/api/scores/:id', async (req, res) => {
     }
 });
 
-// --- Start Server ---
-app.listen(PORT, async () => {
-  await connectDB();
-  console.log(`Backend server is running on http://localhost:${PORT}`);
-  console.log('API endpoints are available under /api');
-});
+// --- Start Server (for local development) ---
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, async () => {
+    // We connect here to see any initial connection errors during local dev
+    try {
+        await connectDB();
+        console.log(`Backend server is running on http://localhost:${PORT}`);
+        console.log('API endpoints are available under /api');
+    } catch (e) {
+        console.error("Failed to start server due to DB connection issue:", e.message);
+    }
+  });
+}
 
 // Export the app for serverless environments like Vercel
 module.exports = app;
