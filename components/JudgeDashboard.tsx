@@ -8,8 +8,8 @@ interface JudgeDashboardProps {
   projects: Project[];
   criteria: Criterion[];
   scores: Score[];
-  onScoreSubmit: (newScore: Score) => void;
-  onScoreDelete: (scoreId: string) => void;
+  onScoreSubmit: (newScore: Score) => Promise<void>;
+  onScoreDelete: (scoreId: string) => Promise<void>;
 }
 
 const JudgeDashboard: React.FC<JudgeDashboardProps> = ({ judge, projects, criteria, scores, onScoreSubmit, onScoreDelete }) => {
@@ -100,10 +100,10 @@ const JudgeDashboard: React.FC<JudgeDashboardProps> = ({ judge, projects, criter
                       Edit Score
                     </button>
                     <button
-                        onClick={() => {
+                        onClick={async () => {
                             const scoreToDelete = scoresByProjectId.get(project.id);
                             if (scoreToDelete) {
-                                onScoreDelete(scoreToDelete.id);
+                                await onScoreDelete(scoreToDelete.id);
                             }
                         }}
                         className="p-2 rounded-md bg-white border border-gray-300 text-gray-500 hover:bg-red-100 hover:text-red-600 hover:border-red-200 transition-colors"

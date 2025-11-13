@@ -15,15 +15,15 @@ interface AdminDashboardProps {
   judges: Judge[];
   criteria: Criterion[];
   scores: Score[];
-  addProjects: (newProjects: Omit<Project, 'id'>[]) => void;
-  editProject: (updatedProject: Project) => void;
-  deleteProject: (projectId: string) => void;
-  addJudge: (newJudge: Omit<Judge, 'id'>) => void;
-  editJudge: (updatedJudge: Judge) => void;
-  deleteJudge: (judgeId: string) => void;
-  addCriterion: (newCriterion: Omit<Criterion, 'id'>) => void;
-  editCriterion: (updatedCriterion: Criterion) => void;
-  deleteCriterion: (criterionId: string) => void;
+  addProjects: (newProjects: Omit<Project, 'id'>[]) => Promise<void>;
+  editProject: (updatedProject: Project) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
+  addJudge: (newJudge: Omit<Judge, 'id'>) => Promise<Judge>;
+  editJudge: (updatedJudge: Judge) => Promise<void>;
+  deleteJudge: (judgeId: string) => Promise<void>;
+  addCriterion: (newCriterion: Omit<Criterion, 'id'>) => Promise<void>;
+  editCriterion: (updatedCriterion: Criterion) => Promise<void>;
+  deleteCriterion: (criterionId: string) => Promise<void>;
 }
 
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode }> = ({ title, value, icon }) => (
@@ -68,11 +68,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, judges, crite
         setIsJudgeModalOpen(true);
     };
 
-    const handleSaveJudge = (judgeData: Omit<Judge, 'id'> | Judge) => {
+    const handleSaveJudge = async (judgeData: Omit<Judge, 'id'> | Judge) => {
         if ('id' in judgeData) {
-            editJudge(judgeData);
+            await editJudge(judgeData);
         } else {
-            addJudge(judgeData);
+            await addJudge(judgeData);
         }
         setIsJudgeModalOpen(false);
         setEditingJudge(null);
@@ -83,11 +83,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, judges, crite
         setIsCriterionModalOpen(true);
     };
 
-    const handleSaveCriterion = (criterionData: Omit<Criterion, 'id'> | Criterion) => {
+    const handleSaveCriterion = async (criterionData: Omit<Criterion, 'id'> | Criterion) => {
         if ('id' in criterionData) {
-            editCriterion(criterionData);
+            await editCriterion(criterionData);
         } else {
-            addCriterion(criterionData);
+            await addCriterion(criterionData);
         }
         setIsCriterionModalOpen(false);
         setEditingCriterion(null);
@@ -100,7 +100,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, judges, crite
         }
 
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             try {
                 const data = e.target?.result;
                 const workbook = XLSX.read(data, { type: 'array' });
@@ -138,7 +138,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, judges, crite
                     });
                 
                 if (newProjects.length > 0) {
-                    addProjects(newProjects);
+                    await addProjects(newProjects);
                     alert(`${newProjects.length} projects processed from the file.`);
                 } else {
                     alert('No valid projects found in the file to import.');
@@ -361,8 +361,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, judges, crite
                 <EditProjectModal
                     project={editingProject}
                     onClose={() => setEditingProject(null)}
-                    onSave={(updatedProject) => {
-                        editProject(updatedProject);
+                    onSave={async (updatedProject) => {
+                        await editProject(updatedProject);
                         setEditingProject(null);
                     }}
                 />

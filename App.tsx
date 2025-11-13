@@ -1,93 +1,136 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { UserRole, Project, Judge, Criterion, Score, Track } from './types';
 import LoginScreen from './components/LoginScreen';
 import AdminDashboard from './components/AdminDashboard';
 import JudgeDashboard from './components/JudgeDashboard';
 import Header from './components/Header';
-import { MOCK_PROJECTS, MOCK_JUDGES, MOCK_CRITERIA, MOCK_SCORES } from './data/mockData';
+import * as dbService from './services/dbService';
 
 
 function App() {
   const [user, setUser] = useState<{ role: UserRole; id?: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS);
-  const [judges, setJudges] = useState<Judge[]>(MOCK_JUDGES);
-  const [criteria, setCriteria] = useState<Criterion[]>(MOCK_CRITERIA);
-  const [scores, setScores] = useState<Score[]>(MOCK_SCORES);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [judges, setJudges] = useState<Judge[]>([]);
+  const [criteria, setCriteria] = useState<Criterion[]>([]);
+  const [scores, setScores] = useState<Score[]>([]);
 
-  // --- Admin Handlers ---
-  const addProjects = (newProjectsData: Omit<Project, 'id'>[]) => {
-      const createdProjects = newProjectsData.map((p, i) => ({ ...p, id: `p_local_${Date.now()}_${i}` } as Project));
-      setProjects(prev => [...prev, ...createdProjects]);
+  // Initial Data Load from Backend
+  useEffect(() => {
+    const fetchData = async () => {
+        try {
+            setIsLoading(true);
+            const data = await dbService.getAllData();
+            setProjects(data.projects);
+            setJudges(data.judges);
+            setCriteria(data.criteria);
+            setScores(data.scores);
+            setError(null);
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to connect to backend.';
+            setError(`Could not load data. Please ensure the backend server is running. (${errorMessage})`);
+            console.error(err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    fetchData();
+  }, []);
+
+  // WebSocket for Real-time Updates
+  useEffect(() => {
+    // Do not establish WebSocket connection if there was an initial error
+    if (error) return;
+
+    const ws = new WebSocket('ws://localhost:3001');
+
+    ws.onopen = () => console.log('WebSocket connection established');
+    ws.onclose = () => console.log('WebSocket connection closed');
+    ws.onerror = (err) => console.error('WebSocket error:', err);
+
+    ws.onmessage = (event) => {
+        try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'DATA_UPDATE') {
+                const { projects, judges, criteria, scores } = message.payload;
+                setProjects(projects || []);
+                setJudges(judges || []);
+                setCriteria(criteria || []);
+                setScores(scores || []);
+            }
+        } catch (e) {
+            console.error('Error parsing WebSocket message:', e);
+        }
+    };
+
+    // Cleanup function to close the connection when the component unmounts
+    return () => {
+        ws.close();
+    };
+  }, [error]); // Re-run if error state changes (though we only connect if no error)
+
+
+  // --- Admin Handlers (now async and call dbService) ---
+  const addProjects = async (newProjectsData: Omit<Project, 'id'>[]) => {
+      await dbService.createProjects(newProjectsData);
   };
-  const editProject = (updatedProject: Project) => {
-      setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+  const editProject = async (updatedProject: Project) => {
+      await dbService.updateProject(updatedProject);
   };
-  const deleteProject = (projectId: string) => {
+  const deleteProject = async (projectId: string) => {
     if (!window.confirm('Are you sure you want to delete this project? This will also delete all associated scores and cannot be undone.')) {
         return;
     }
-    setProjects(prev => prev.filter(p => p.id !== projectId));
-    setScores(prev => prev.filter(s => s.projectId !== projectId));
+    await dbService.deleteProject(projectId);
   };
 
-  const addJudge = (newJudgeData: Omit<Judge, 'id'>): Judge => {
-    const newJudge = { ...newJudgeData, id: `j_local_${Date.now()}`};
-    setJudges(prev => [...prev, newJudge]);
-    return newJudge;
+  const addJudge = async (newJudgeData: Omit<Judge, 'id'>): Promise<Judge> => {
+    return await dbService.createJudge(newJudgeData);
   };
 
-  const editJudge = (updatedJudge: Judge) => {
-      setJudges(prev => prev.map(j => j.id === updatedJudge.id ? updatedJudge : j));
+  const editJudge = async (updatedJudge: Judge) => {
+      await dbService.updateJudge(updatedJudge);
   };
-  const deleteJudge = (judgeId: string) => {
+  const deleteJudge = async (judgeId: string) => {
     if (!window.confirm('Are you sure you want to delete this judge? This will also delete all their scores and cannot be undone.')) {
         return;
     }
-    setJudges(prev => prev.filter(j => j.id !== judgeId));
-    setScores(prev => prev.filter(s => s.judgeId !== judgeId));
+    await dbService.deleteJudge(judgeId);
   };
 
-  const addCriterion = (newCriterionData: Omit<Criterion, 'id'>) => {
-      const newCriterion = { ...newCriterionData, id: `c_local_${Date.now()}`};
-      setCriteria(prev => [...prev, newCriterion]);
+  const addCriterion = async (newCriterionData: Omit<Criterion, 'id'>) => {
+      await dbService.createCriterion(newCriterionData);
   };
-  const editCriterion = (updatedCriterion: Criterion) => {
-      setCriteria(prev => prev.map(c => c.id === updatedCriterion.id ? updatedCriterion : c));
+  const editCriterion = async (updatedCriterion: Criterion) => {
+      await dbService.updateCriterion(updatedCriterion);
   };
-  const deleteCriterion = (criterionId: string) => {
+  const deleteCriterion = async (criterionId: string) => {
      if (!window.confirm('Are you sure you want to delete this criterion? This could affect existing scores.')) {
         return;
      }
-    setCriteria(prev => prev.filter(c => c.id !== criterionId));
+    await dbService.deleteCriterion(criterionId);
   };
 
   // --- Judge Handler ---
-  const addOrUpdateScore = (newScore: Score) => {
-    setScores(prev => {
-        const index = prev.findIndex(s => s.id === newScore.id);
-        if (index > -1) {
-            const updatedScores = [...prev];
-            updatedScores[index] = newScore;
-            return updatedScores;
-        }
-        return [...prev, newScore];
-    });
+  const addOrUpdateScore = async (newScore: Score) => {
+    await dbService.createOrUpdateScore(newScore);
   };
   
-  const deleteScore = (scoreId: string) => {
+  const deleteScore = async (scoreId: string) => {
     if (!window.confirm('Are you sure you want to delete this evaluation? This action cannot be undone.')) {
         return;
     }
-    setScores(prev => prev.filter(s => s.id !== scoreId));
+    await dbService.deleteScore(scoreId);
   };
 
   const handleAdminLogin = () => setUser({ role: UserRole.ADMIN });
 
-  const handleJuryLogin = (judgeId: string, newJudgeData?: Omit<Judge, 'id'>) => {
+  const handleJuryLogin = async (judgeId: string, newJudgeData?: Omit<Judge, 'id'>) => {
     let finalJudgeId = judgeId;
     if (judgeId === 'new' && newJudgeData) {
-      const newJudge = addJudge(newJudgeData);
+      const newJudge = await addJudge(newJudgeData);
       finalJudgeId = newJudge.id;
     }
     setUser({ role: UserRole.JUDGE, id: finalJudgeId });
@@ -110,6 +153,14 @@ function App() {
   }, [user, judges, projects, scores]);
 
   const renderContent = () => {
+    if (isLoading) {
+        return <div className="p-8 text-center text-gray-600">Loading evaluation data...</div>
+    }
+
+    if (error) {
+        return <div className="p-8 text-center text-red-600 bg-red-50 rounded-lg max-w-2xl mx-auto mt-10 border border-red-200">{error}</div>
+    }
+
     if (!user) {
       return <LoginScreen onAdminLogin={handleAdminLogin} onJuryLogin={handleJuryLogin} judges={judges} />;
     }
@@ -132,22 +183,11 @@ function App() {
             deleteCriterion={deleteCriterion}
         />;
       case UserRole.JUDGE:
-        if (!judgeData) {
-            const tempJudge = judges.find(j => j.id === user.id);
-            if (tempJudge) {
-                const judgeProjects = projects.filter(p => tempJudge.tracks.includes(p.track as Track));
-                const judgeScores = scores.filter(s => s.judgeId === tempJudge.id);
-                return <JudgeDashboard
-                    judge={tempJudge}
-                    projects={judgeProjects}
-                    criteria={criteria}
-                    scores={judgeScores}
-                    onScoreSubmit={addOrUpdateScore}
-                    onScoreDelete={deleteScore}
-                />;
-            }
+        if (!judgeData || !judgeData.currentJudge) {
+            // This can happen briefly if a judge is deleted while they are logged in.
+            // The websocket will remove them, and this logic will log them out gracefully.
             handleLogout();
-            return <p className="p-8 text-center text-red-500">Your judge profile was not found. You have been logged out.</p>
+            return null; // Or a message
         }
         
         return <JudgeDashboard

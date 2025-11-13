@@ -4,7 +4,7 @@ import { AdminIcon, JudgeIcon, LogoIcon } from './icons';
 
 interface LoginScreenProps {
   onAdminLogin: () => void;
-  onJuryLogin: (judgeId: string, newJudgeData?: Omit<Judge, 'id'>) => void;
+  onJuryLogin: (judgeId: string, newJudgeData?: Omit<Judge, 'id'>) => Promise<void>;
   judges: Judge[];
 }
 
@@ -24,7 +24,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onAdminLogin, onJuryLogin, ju
     );
   };
 
-  const handleJuryLoginSubmit = () => {
+  const handleJuryLoginSubmit = async () => {
     if (selectedJudge === 'new') {
         if (!newJudgeName.trim()) {
             alert('Please enter your name.');
@@ -34,9 +34,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onAdminLogin, onJuryLogin, ju
             alert('Please select at least one track.');
             return;
         }
-        onJuryLogin('new', { name: newJudgeName.trim(), tracks: newJudgeTracks });
+        await onJuryLogin('new', { name: newJudgeName.trim(), tracks: newJudgeTracks });
     } else {
-        onJuryLogin(selectedJudge);
+        await onJuryLogin(selectedJudge);
     }
   };
   
