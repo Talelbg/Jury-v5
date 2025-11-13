@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource mongo {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  judges      Judge[]       @relation("ProjectJudges")
+  scores      EvaluationScore[]
+  
+  @@index([title])
+}
+
+model Judge {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  email       String         @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  projects    Project[]     @relation("ProjectJudges")
+  scores      EvaluationScore[]
+
+  @@index([email])
+}
+
+model EvaluationScore {
+  id         String      @id @default(auto()) @map("_id") @db.ObjectId
+  projectId  String      @db.ObjectId
+  judgeId    String      @db.ObjectId
+  score      Int
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  project    Project     @relation(fields: [projectId], references: [id])
+  judge      Judge       @relation(fields: [judgeId], references: [id])
+
+  @@unique([projectId, judgeId])
+}
+
+model Conflict {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  projectId   String      @db.ObjectId
+  judgeId     String      @db.ObjectId
+  reason       String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  project    Project     @relation(fields: [projectId], references: [id])
+  judge      Judge       @relation(fields: [judgeId], references: [id])
+}
